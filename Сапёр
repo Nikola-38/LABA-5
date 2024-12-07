@@ -21,10 +21,12 @@ class Board {
 public:
     std::vector<std::vector<Cell>> cells;
     int width, height, mines;
+    int flaggedMines;  // Количество правильно помеченных мин
     bool firstClick;
+    bool gameOver;  // Флаг окончания игры
 
     Board(int width, int height, int mines)
-        : width(width), height(height), mines(mines), firstClick(true) {
+        : width(width), height(height), mines(mines), flaggedMines(0), firstClick(true), gameOver(false) {
         cells.resize(height, std::vector<Cell>(width));
     }
 
@@ -57,22 +59,31 @@ public:
     }
 
     void openCell(int x, int y) {
-        if (cells[y][x].open) return; // Если клетка уже открыта
+        if (cells[y][x].open || gameOver) return; // Если клетка уже открыта или игра закончена
 
         cells[y][x].open = true;
 
         if (cells[y][x].value == Mine) {
-            return;
+            gameOver = true;  // Игра завершена, если попали на мину
         }
     }
 
     void flagCell(int x, int y) {
-        if (!cells[y][x].open) {
+        if (!cells[y][x].open && !gameOver) {
             cells[y][x].flagged = !cells[y][x].flagged;
+
+            // Если флаг был поставлен на мину, увеличиваем счётчик найденных мин
+            if (cells[y][x].value == Mine && cells[y][x].flagged) {
+                flaggedMines++;
+            }
+            // Если флаг убран с мины, уменьшаем счётчик найденных мин
+            else if (cells[y][x].value == Mine && !cells[y][x].flagged) {
+                flaggedMines--;
+            }
         }
     }
 
-    void display(sf::RenderWindow &window) {
+    void display(sf::RenderWindow &window, sf::Time elapsedTime) {
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 auto &cell = cells[y][x];
@@ -90,6 +101,14 @@ public:
                 }
                 
                 window.draw(cellShape);
+
+                // Отображение флага
+                if (cell.flagged) {
+                    sf::CircleShape flagShape(10.f, 3);
+                    flagShape.setPosition(x * 30.f + 7.f, y * 30.f + 7.f);
+                    flagShape.setFillColor(sf::Color::Blue);
+                    window.draw(flagShape);
+                }
                 
                 if (cell.open && cell.value > 0) {
                     sf::Text text;
@@ -102,6 +121,35 @@ public:
                 }
             }
         }
+
+        // Если игра окончена (поражение)
+        if (gameOver) {
+            sf::Text gameOverText;
+            gameOverText.setFont(font);
+            gameOverText.setString("Game Over!");
+            gameOverText.setCharacterSize(50);
+            gameOverText.setFillColor(sf::Color::Red);
+            gameOverText.setPosition(width * 15.f / 2, height * 15.f / 2);
+            window.draw(gameOverText);
+
+            // Показать статистику о мин
+            sf::Text statsText;
+            statsText.setFont(font);
+            statsText.setString("Mines found: " + std::to_string(flaggedMines) + "/" + std::to_string(mines));
+            statsText.setCharacterSize(20);
+            statsText.setFillColor(sf::Color::Black);
+            statsText.setPosition(10.f, height * 30.f - 30.f);
+            window.draw(statsText);
+        }
+
+        // Отображаем таймер
+        sf::Text timerText;
+        timerText.setFont(font);
+        timerText.setString("Time: " + std::to_string(elapsedTime.asSeconds()) + "s");
+        timerText.setCharacterSize(20);
+        timerText.setFillColor(sf::Color::Black);
+        timerText.setPosition(10.f, 10.f);
+        window.draw(timerText);
     }
 
     static sf::Font font;
@@ -114,10 +162,12 @@ bool Board::fontLoaded = false;
 class GameWindow : public sf::RenderWindow {
 public:
     GameWindow(int width, int height) : sf::RenderWindow(sf::VideoMode(width * 30, height * 30), "Minesweeper") {
-        setVerticalSyncEnabled(false); // Отключение вертикальной синхронизации
+        // Убираем вертикальную синхронизацию
+        setVerticalSyncEnabled(false); // Можно убрать или оставить, если драйвер поддерживает
 
+        // Загрузка шрифта, теперь используем доступный шрифт или по умолчанию
         if (!Board::fontLoaded) {
-            Board::fontLoaded = Board::font.loadFromFile("sansation.ttf"); // Используем sansation.ttf
+            Board::fontLoaded = Board::font.loadFromFile("arial.ttf"); // Используем стандартный Arial, если sansation.ttf не доступен
             if (!Board::fontLoaded) {
                 std::cerr << "Error: Could not load font!" << std::endl;
                 return;
@@ -143,8 +193,9 @@ public:
         bool gameOver = false;
 
         sf::Clock clock;
+        sf::Time elapsedTime;
 
-        while (isOpen() && !gameOver) {
+        while (isOpen() && !board.gameOver) {
             sf::Event event;
             while (pollEvent(event)) {
                 if (event.type == sf::Event::Closed) {
@@ -166,17 +217,11 @@ public:
                 }
             }
 
-            clear(sf::Color::White);
-            board.display(*this);
+            // Получаем время, прошедшее с начала игры
+            elapsedTime = clock.getElapsedTime();
 
-            // Отображаем таймер
-            sf::Text timerText;
-            timerText.setFont(Board::font);
-            timerText.setString("Time: " + std::to_string(clock.getElapsedTime().asSeconds()));
-            timerText.setCharacterSize(20);
-            timerText.setFillColor(sf::Color::Black);
-            timerText.setPosition(10.f, 10.f);
-            draw(timerText);
+            clear(sf::Color::White);
+            board.display(*this, elapsedTime);
 
             display();
         }
@@ -184,7 +229,7 @@ public:
 };
 
 int main() {
-    GameWindow window(10, 10); // Используем маленький размер поля для теста
+    GameWindow window(20, 20); // Используем маленький размер поля для теста
     window.runGame();
     return 0;
 }
