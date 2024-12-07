@@ -1,0 +1,190 @@
+#include <SFML/Graphics.hpp>
+#include <iostream>
+#include <vector>
+#include <ctime>
+#include <cstdlib>
+
+const int Empty = 0;
+const int Mine = -1;
+const int Flagged = -2;
+
+class Cell {
+public:
+    int value;  // Значение клетки: Mine, Empty или Flagged
+    bool open;  // Открыта ли клетка
+    bool flagged; // Помечена ли клетка флагом
+
+    Cell() : value(Empty), open(false), flagged(false) {}
+};
+
+class Board {
+public:
+    std::vector<std::vector<Cell>> cells;
+    int width, height, mines;
+    bool firstClick;
+
+    Board(int width, int height, int mines)
+        : width(width), height(height), mines(mines), firstClick(true) {
+        cells.resize(height, std::vector<Cell>(width));
+    }
+
+    void generate(int x, int y) {
+        srand(time(0));
+
+        // Генерация мин, избегая клетки, на которой был первый клик
+        for (int i = 0; i < mines; ++i) {
+            int xx, yy;
+            do {
+                xx = rand() % width;
+                yy = rand() % height;
+            } while ((xx == x && yy == y) || cells[yy][xx].value == Mine);
+            cells[yy][xx].value = Mine;
+            incrementAdjacentCells(xx, yy);
+        }
+        firstClick = false;
+    }
+
+    void incrementAdjacentCells(int x, int y) {
+        for (int i = -1; i <= 1; ++i) {
+            for (int j = -1; j <= 1; ++j) {
+                if (i == 0 && j == 0) continue;
+                int adjX = x + j, adjY = y + i;
+                if (adjX >= 0 && adjX < width && adjY >= 0 && adjY < height && cells[adjY][adjX].value != Mine) {
+                    cells[adjY][adjX].value++;
+                }
+            }
+        }
+    }
+
+    void openCell(int x, int y) {
+        if (cells[y][x].open) return; // Если клетка уже открыта
+
+        cells[y][x].open = true;
+
+        if (cells[y][x].value == Mine) {
+            return;
+        }
+    }
+
+    void flagCell(int x, int y) {
+        if (!cells[y][x].open) {
+            cells[y][x].flagged = !cells[y][x].flagged;
+        }
+    }
+
+    void display(sf::RenderWindow &window) {
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                auto &cell = cells[y][x];
+                sf::RectangleShape cellShape(sf::Vector2f(30.f, 30.f));
+                cellShape.setPosition(x * 30.f, y * 30.f);
+                
+                if (cell.open) {
+                    if (cell.value == Mine) {
+                        cellShape.setFillColor(sf::Color::Red); // Мин
+                    } else {
+                        cellShape.setFillColor(sf::Color::White); // Пустая клетка
+                    }
+                } else {
+                    cellShape.setFillColor(sf::Color(169, 169, 169)); // Закрытая клетка
+                }
+                
+                window.draw(cellShape);
+                
+                if (cell.open && cell.value > 0) {
+                    sf::Text text;
+                    text.setFont(font);
+                    text.setString(std::to_string(cell.value));
+                    text.setCharacterSize(18);
+                    text.setFillColor(sf::Color::Black);
+                    text.setPosition(x * 30.f + 10.f, y * 30.f + 5.f);
+                    window.draw(text);
+                }
+            }
+        }
+    }
+
+    static sf::Font font;
+    static bool fontLoaded;
+};
+
+sf::Font Board::font;
+bool Board::fontLoaded = false;
+
+class GameWindow : public sf::RenderWindow {
+public:
+    GameWindow(int width, int height) : sf::RenderWindow(sf::VideoMode(width * 30, height * 30), "Minesweeper") {
+        setVerticalSyncEnabled(false); // Отключение вертикальной синхронизации
+
+        if (!Board::fontLoaded) {
+            Board::fontLoaded = Board::font.loadFromFile("sansation.ttf"); // Используем sansation.ttf
+            if (!Board::fontLoaded) {
+                std::cerr << "Error: Could not load font!" << std::endl;
+                return;
+            }
+        }
+    }
+
+    void runGame() {
+        int width, height, mines;
+        std::cout << "Enter board width: ";
+        std::cin >> width;
+        std::cout << "Enter board height: ";
+        std::cin >> height;
+        std::cout << "Enter number of mines: ";
+        std::cin >> mines;
+
+        if (mines >= width * height) {
+            std::cerr << "Error: Too many mines!" << std::endl;
+            return;
+        }
+
+        Board board(width, height, mines); // Создаём поле с заданными параметрами
+        bool gameOver = false;
+
+        sf::Clock clock;
+
+        while (isOpen() && !gameOver) {
+            sf::Event event;
+            while (pollEvent(event)) {
+                if (event.type == sf::Event::Closed) {
+                    close();
+                }
+
+                if (event.type == sf::Event::MouseButtonPressed) {
+                    int x = event.mouseButton.x / 30;
+                    int y = event.mouseButton.y / 30;
+
+                    if (event.mouseButton.button == sf::Mouse::Left) {
+                        if (board.firstClick) {
+                            board.generate(x, y);
+                        }
+                        board.openCell(x, y);
+                    } else if (event.mouseButton.button == sf::Mouse::Right) {
+                        board.flagCell(x, y);
+                    }
+                }
+            }
+
+            clear(sf::Color::White);
+            board.display(*this);
+
+            // Отображаем таймер
+            sf::Text timerText;
+            timerText.setFont(Board::font);
+            timerText.setString("Time: " + std::to_string(clock.getElapsedTime().asSeconds()));
+            timerText.setCharacterSize(20);
+            timerText.setFillColor(sf::Color::Black);
+            timerText.setPosition(10.f, 10.f);
+            draw(timerText);
+
+            display();
+        }
+    }
+};
+
+int main() {
+    GameWindow window(10, 10); // Используем маленький размер поля для теста
+    window.runGame();
+    return 0;
+}
